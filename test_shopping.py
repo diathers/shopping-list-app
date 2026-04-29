@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
-FILE_URL = f"file://{Path(__file__).parent / 'shopping_list.html'}"
+FILE_URL = f"file://{Path(__file__).parent / 'index.html'}"
 
 PASS = "\033[32m✓\033[0m"
 FAIL = "\033[31m✗\033[0m"
@@ -20,7 +20,6 @@ def run():
         browser = p.chromium.launch(headless=True)
         ctx = browser.new_context()
 
-        # ── 매 테스트마다 localStorage 초기화 ───────────────────────────────
         def fresh_page():
             page = ctx.new_page()
             page.goto(FILE_URL)
@@ -28,9 +27,6 @@ def run():
             page.reload()
             return page
 
-        # ────────────────────────────────────────────────────────────────────
-        # 1. 초기 상태
-        # ────────────────────────────────────────────────────────────────────
         print("\n[1] 초기 상태")
         page = fresh_page()
         empty = page.locator(".empty")
@@ -38,9 +34,6 @@ def run():
         check("헤더 요약 '항목 없음'", "항목 없음" in page.locator("#summary").text_content())
         page.close()
 
-        # ────────────────────────────────────────────────────────────────────
-        # 2. 아이템 추가
-        # ────────────────────────────────────────────────────────────────────
         print("\n[2] 아이템 추가")
         page = fresh_page()
         inp = page.locator("#new-item")
@@ -72,9 +65,6 @@ def run():
 
         page.close()
 
-        # ────────────────────────────────────────────────────────────────────
-        # 3. 체크 기능
-        # ────────────────────────────────────────────────────────────────────
         print("\n[3] 체크(완료) 기능")
         page = fresh_page()
         for text in ["사과", "바나나", "우유"]:
@@ -96,9 +86,6 @@ def run():
         check("완료 카운트 표시 (1 / 3 완료)", "1 / 3 완료" in done_text, done_text)
         page.close()
 
-        # ────────────────────────────────────────────────────────────────────
-        # 4. 개별 삭제
-        # ────────────────────────────────────────────────────────────────────
         print("\n[4] 개별 삭제")
         page = fresh_page()
         for text in ["사과", "바나나", "우유"]:
@@ -117,9 +104,6 @@ def run():
         check("전부 삭제 후 빈 메시지 표시", page.locator(".empty").is_visible())
         page.close()
 
-        # ────────────────────────────────────────────────────────────────────
-        # 5. 완료 항목 일괄 삭제
-        # ────────────────────────────────────────────────────────────────────
         print("\n[5] 완료 항목 일괄 삭제")
         page = fresh_page()
         for text in ["사과", "바나나", "우유"]:
@@ -136,9 +120,6 @@ def run():
         check("미완료 항목(우유) 유지", items.first.locator("label").text_content() == "우유")
         page.close()
 
-        # ────────────────────────────────────────────────────────────────────
-        # 6. localStorage 영속성
-        # ────────────────────────────────────────────────────────────────────
         print("\n[6] localStorage 영속성")
         page = ctx.new_page()
         page.goto(FILE_URL)
@@ -160,7 +141,6 @@ def run():
 
         browser.close()
 
-    # ── 결과 요약 ────────────────────────────────────────────────────────────
     passed = sum(1 for _, ok in results if ok)
     failed = sum(1 for _, ok in results if not ok)
     total  = len(results)
