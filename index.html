@@ -77,6 +77,7 @@
 
     .input-row button:hover { background: #3a57d4; }
     .input-row button:active { transform: scale(0.94); }
+    .input-row button:disabled { background: #a0afd8; cursor: not-allowed; }
 
     .list {
       list-style: none;
@@ -85,6 +86,13 @@
     }
 
     .empty {
+      text-align: center;
+      color: #b0b5c8;
+      font-size: 0.9rem;
+      padding: 32px 0;
+    }
+
+    .loading {
       text-align: center;
       color: #b0b5c8;
       font-size: 0.9rem;
@@ -169,6 +177,15 @@
     }
 
     .clear-btn:hover { color: #e94f4f; background: #fff0f0; }
+
+    .error-bar {
+      background: #fff0f0;
+      color: #c0392b;
+      font-size: 0.82rem;
+      padding: 8px 20px;
+      border-bottom: 1px solid #fdd;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -177,6 +194,8 @@
       <h1>🛒 쇼핑 리스트</h1>
       <div class="summary" id="summary">항목 없음</div>
     </header>
+
+    <div class="error-bar" id="error-bar"></div>
 
     <div class="input-row">
       <input type="text" id="new-item" placeholder="항목 입력..." maxlength="80" autocomplete="off">
@@ -191,20 +210,28 @@
     </footer>
   </div>
 
-  <script>
-    const STORAGE_KEY = 'shopping-list-v1';
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
-    let items = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    const SUPABASE_URL  = 'https://bwyxaeafuauwnmuxdpsx.supabase.co';
+    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3eXhhZWFmdWF1d25tdXhkcHN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1NDY1MzYsImV4cCI6MjA5MzEyMjUzNn0.ABnQcneJWSGmye5VSCxvTpW9Kf6VjMbzgFIq00xbU2o';
 
-    const listEl      = document.getElementById('list');
-    const input       = document.getElementById('new-item');
-    const addBtn      = document.getElementById('add-btn');
-    const summaryEl   = document.getElementById('summary');
-    const doneCountEl = document.getElementById('done-count');
+    const db = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+    const listEl       = document.getElementById('list');
+    const input        = document.getElementById('new-item');
+    const addBtn       = document.getElementById('add-btn');
+    const summaryEl    = document.getElementById('summary');
+    const doneCountEl  = document.getElementById('done-count');
     const clearDoneBtn = document.getElementById('clear-done');
+    const errorBar     = document.getElementById('error-bar');
 
-    function save() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    let items = [];
+
+    function showError(msg) {
+      errorBar.textContent = msg;
+      errorBar.style.display = 'block';
+      setTimeout(() => { errorBar.style.display = 'none'; }, 4000);
     }
 
     function updateSummary() {
@@ -223,33 +250,26 @@
         return;
       }
 
-      items.forEach((item, idx) => {
+      items.forEach(item => {
         const li = document.createElement('li');
         li.className = 'item' + (item.done ? ' done' : '');
+        li.dataset.id = item.id;
 
         const cb = document.createElement('input');
         cb.type    = 'checkbox';
         cb.checked = item.done;
-        cb.id      = `cb-${idx}`;
-        cb.addEventListener('change', () => {
-          items[idx].done = cb.checked;
-          save();
-          render();
-        });
+        cb.id      = `cb-${item.id}`;
+        cb.addEventListener('change', () => toggleDone(item.id, cb.checked));
 
         const label = document.createElement('label');
-        label.htmlFor   = `cb-${idx}`;
+        label.htmlFor     = `cb-${item.id}`;
         label.textContent = item.text;
 
         const delBtn = document.createElement('button');
         delBtn.className   = 'del-btn';
         delBtn.textContent = '✕';
         delBtn.title       = '삭제';
-        delBtn.addEventListener('click', () => {
-          items.splice(idx, 1);
-          save();
-          render();
-        });
+        delBtn.addEventListener('click', () => deleteItem(item.id));
 
         li.append(cb, label, delBtn);
         listEl.appendChild(li);
@@ -258,25 +278,82 @@
       updateSummary();
     }
 
-    function addItem() {
+    async function loadItems() {
+      listEl.innerHTML = '<li class="loading">불러오는 중...</li>';
+      const { data, error } = await db
+        .from('shopping_items')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (error) { showError('데이터 로드 실패: ' + error.message); return; }
+      items = data;
+      render();
+    }
+
+    async function addItem() {
       const text = input.value.trim();
       if (!text) return;
-      items.push({ text, done: false });
+
+      addBtn.disabled = true;
+      const { data, error } = await db
+        .from('shopping_items')
+        .insert({ text, done: false })
+        .select()
+        .single();
+
+      addBtn.disabled = false;
+      if (error) { showError('추가 실패: ' + error.message); return; }
+
+      items.push(data);
       input.value = '';
-      save();
+      render();
+    }
+
+    async function toggleDone(id, done) {
+      const { error } = await db
+        .from('shopping_items')
+        .update({ done })
+        .eq('id', id);
+
+      if (error) { showError('수정 실패: ' + error.message); await loadItems(); return; }
+
+      const item = items.find(i => i.id === id);
+      if (item) item.done = done;
+      render();
+    }
+
+    async function deleteItem(id) {
+      const { error } = await db
+        .from('shopping_items')
+        .delete()
+        .eq('id', id);
+
+      if (error) { showError('삭제 실패: ' + error.message); return; }
+
+      items = items.filter(i => i.id !== id);
+      render();
+    }
+
+    async function clearDone() {
+      const doneIds = items.filter(i => i.done).map(i => i.id);
+      if (doneIds.length === 0) return;
+
+      const { error } = await db
+        .from('shopping_items')
+        .delete()
+        .in('id', doneIds);
+
+      if (error) { showError('삭제 실패: ' + error.message); return; }
+
+      items = items.filter(i => !i.done);
       render();
     }
 
     addBtn.addEventListener('click', addItem);
     input.addEventListener('keydown', e => { if (e.key === 'Enter') addItem(); });
+    clearDoneBtn.addEventListener('click', clearDone);
 
-    clearDoneBtn.addEventListener('click', () => {
-      items = items.filter(i => !i.done);
-      save();
-      render();
-    });
-
-    render();
+    loadItems();
   </script>
 </body>
 </html>
